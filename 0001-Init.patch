@@ -1,0 +1,310 @@
+From a7c7c125a4bf7b3afedc24c6fa7be5a47bb33390 Mon Sep 17 00:00:00 2001
+From: zeroway <M_O_Bz@163.com>
+Date: Sun, 5 Nov 2023 18:28:50 +0800
+Subject: [PATCH] Init
+
+---
+ Makefile                              |  2 +-
+ arch/x86/boot/compressed/pgtable_64.c |  2 +-
+ arch/x86/kernel/time.c                |  2 +
+ include/linux/start_kernel.h          |  1 +
+ include/linux/timer.h                 |  2 +
+ init/main.c                           |  1 +
+ mykernel/Makefile                     |  6 ++
+ mykernel/README.md                    | 21 +++++++
+ mykernel/myinterrupt.c                | 44 +++++++++++++
+ mykernel/mymain.c                     | 91 +++++++++++++++++++++++++++
+ tools/objtool/elf.c                   |  4 +-
+ 11 files changed, 172 insertions(+), 4 deletions(-)
+ create mode 100644 mykernel/Makefile
+ create mode 100644 mykernel/README.md
+ create mode 100644 mykernel/myinterrupt.c
+ create mode 100644 mykernel/mymain.c
+
+diff --git a/Makefile b/Makefile
+index ffd7a912fc46..aa24fc0db8ad 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1010,7 +1010,7 @@ PHONY += prepare0
+ export MODORDER := $(extmod-prefix)modules.order
+ 
+ ifeq ($(KBUILD_EXTMOD),)
+-core-y		+= kernel/ certs/ mm/ fs/ ipc/ security/ crypto/ block/
++core-y		+= kernel/ certs/ mm/ fs/ ipc/ security/ crypto/ block/ mykernel/
+ 
+ vmlinux-dirs	:= $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
+ 		     $(core-y) $(core-m) $(drivers-y) $(drivers-m) \
+diff --git a/arch/x86/boot/compressed/pgtable_64.c b/arch/x86/boot/compressed/pgtable_64.c
+index c8862696a47b..b13c3eac03e8 100644
+--- a/arch/x86/boot/compressed/pgtable_64.c
++++ b/arch/x86/boot/compressed/pgtable_64.c
+@@ -12,7 +12,7 @@
+  * It is not referenced from the code, but GCC < 5 with -fPIE would fail
+  * due to an undefined symbol. Define it to make these ancient GCCs work.
+  */
+-unsigned long __force_order;
++//unsigned long __force_order;
+ 
+ #define BIOS_START_MIN		0x20000U	/* 128K, less than this is insane */
+ #define BIOS_START_MAX		0x9f000U	/* 640K, absolute maximum */
+diff --git a/arch/x86/kernel/time.c b/arch/x86/kernel/time.c
+index 7ce29cee9f9e..540708505916 100644
+--- a/arch/x86/kernel/time.c
++++ b/arch/x86/kernel/time.c
+@@ -16,6 +16,7 @@
+ #include <linux/irq.h>
+ #include <linux/i8253.h>
+ #include <linux/time.h>
++#include <linux/timer.h>
+ #include <linux/export.h>
+ 
+ #include <asm/vsyscall.h>
+@@ -59,6 +60,7 @@ EXPORT_SYMBOL(profile_pc);
+ static irqreturn_t timer_interrupt(int irq, void *dev_id)
+ {
+ 	global_clock_event->event_handler(global_clock_event);
++    	my_timer_handler();
+ 	return IRQ_HANDLED;
+ }
+ 
+diff --git a/include/linux/start_kernel.h b/include/linux/start_kernel.h
+index 8b369a41c03c..bb946a4d0eb0 100644
+--- a/include/linux/start_kernel.h
++++ b/include/linux/start_kernel.h
+@@ -9,6 +9,7 @@
+    up something else. */
+ 
+ extern asmlinkage void __init start_kernel(void);
++extern void __init my_start_kernel(void);
+ extern void __init arch_call_rest_init(void);
+ extern void __ref rest_init(void);
+ 
+diff --git a/include/linux/timer.h b/include/linux/timer.h
+index 1e6650ed066d..a3436bdb0b39 100644
+--- a/include/linux/timer.h
++++ b/include/linux/timer.h
+@@ -193,6 +193,8 @@ extern int try_to_del_timer_sync(struct timer_list *timer);
+ 
+ extern void init_timers(void);
+ extern void run_local_timers(void);
++extern void my_timer_handler(void);
++
+ struct hrtimer;
+ extern enum hrtimer_restart it_real_fn(struct hrtimer *);
+ 
+diff --git a/init/main.c b/init/main.c
+index 91f6ebb30ef0..0fe4932ddbda 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -780,6 +780,7 @@ asmlinkage __visible void __init start_kernel(void)
+ 	arch_post_acpi_subsys_init();
+ 	sfi_init_late();
+ 
++    	my_start_kernel();
+ 	/* Do the rest non-__init'ed, we're now alive */
+ 	arch_call_rest_init();
+ }
+diff --git a/mykernel/Makefile b/mykernel/Makefile
+new file mode 100644
+index 000000000000..6dee9432e732
+--- /dev/null
++++ b/mykernel/Makefile
+@@ -0,0 +1,6 @@
++#
++# Makefile for the linux mykernel.
++#
++
++obj-y     = mymain.o myinterrupt.o
++
+diff --git a/mykernel/README.md b/mykernel/README.md
+new file mode 100644
+index 000000000000..5ab768faed2e
+--- /dev/null
++++ b/mykernel/README.md
+@@ -0,0 +1,21 @@
++mykernel 2.0
++==========
++Develop your own OS kernel by reusing Linux infrastructure, based on x86-64/Linux Kernel 5.4.34.
++
++## Set up mykernel 2.0 in Ubuntu 18.04
++
++```
++sudo apt install build-essential
++sudo apt install axel
++sudo apt install qemu # install QEMU
++sudo apt install libncurses-dev bison flex libssl-dev libelf-dev
++wget https://raw.github.com/mengning/mykernel/master/mykernel-2.0_for_linux-5.3.34.patch
++axel -n 20 https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x/linux-5.4.34.tar.xz
++xz -d linux-5.4.34.tar.xz
++tar -xvf linux-5.4.34.tar
++cd linux-5.4.34
++patch -p1 < ../mykernel-2.0_for_linux-5.3.34.patch
++make defconfig # Default configuration is based on 'x86_64_defconfig'
++make -j$(nproc)
++qemu-system-x86_64 -kernel arch/x86/boot/bzImage
++```
+diff --git a/mykernel/myinterrupt.c b/mykernel/myinterrupt.c
+new file mode 100644
+index 000000000000..8b85160caf21
+--- /dev/null
++++ b/mykernel/myinterrupt.c
+@@ -0,0 +1,44 @@
++/*
++ *  linux/mykernel/myinterrupt.c
++ *
++ *  Kernel internal my_timer_handler
++ *
++ *  Copyright (C) 2013  Mengning
++ *
++ */
++#include <linux/kernel_stat.h>
++#include <linux/export.h>
++#include <linux/interrupt.h>
++#include <linux/percpu.h>
++#include <linux/init.h>
++#include <linux/mm.h>
++#include <linux/swap.h>
++#include <linux/pid_namespace.h>
++#include <linux/notifier.h>
++#include <linux/thread_info.h>
++#include <linux/time.h>
++#include <linux/jiffies.h>
++#include <linux/posix-timers.h>
++#include <linux/cpu.h>
++#include <linux/syscalls.h>
++#include <linux/delay.h>
++#include <linux/tick.h>
++#include <linux/kallsyms.h>
++#include <linux/irq_work.h>
++#include <linux/sched.h>
++#include <linux/sched/sysctl.h>
++#include <linux/slab.h>
++
++#include <asm/uaccess.h>
++#include <asm/unistd.h>
++#include <asm/div64.h>
++#include <asm/timex.h>
++#include <asm/io.h>
++
++/*
++ * Called by timer interrupt.
++ */
++void my_timer_handler(void)
++{
++	pr_notice("\n>>>>>>>>>>>>>>>>>my_timer_handler here<<<<<<<<<<<<<<<<<<\n\n");
++}
+diff --git a/mykernel/mymain.c b/mykernel/mymain.c
+new file mode 100644
+index 000000000000..38c3a0660ae0
+--- /dev/null
++++ b/mykernel/mymain.c
+@@ -0,0 +1,91 @@
++/*
++ *  linux/mykernel/mymain.c
++ *
++ *  Kernel internal my_start_kernel
++ *
++ *  Copyright (C) 2013  Mengning
++ *
++ */
++#include <linux/types.h>
++#include <linux/module.h>
++#include <linux/proc_fs.h>
++#include <linux/kernel.h>
++#include <linux/syscalls.h>
++#include <linux/stackprotector.h>
++#include <linux/string.h>
++#include <linux/ctype.h>
++#include <linux/delay.h>
++#include <linux/ioport.h>
++#include <linux/init.h>
++#include <linux/initrd.h>
++#include <linux/acpi.h>
++#include <linux/tty.h>
++#include <linux/percpu.h>
++#include <linux/kmod.h>
++#include <linux/vmalloc.h>
++#include <linux/kernel_stat.h>
++#include <linux/start_kernel.h>
++#include <linux/security.h>
++#include <linux/smp.h>
++#include <linux/profile.h>
++#include <linux/rcupdate.h>
++#include <linux/moduleparam.h>
++#include <linux/kallsyms.h>
++#include <linux/writeback.h>
++#include <linux/cpu.h>
++#include <linux/cpuset.h>
++#include <linux/cgroup.h>
++#include <linux/efi.h>
++#include <linux/tick.h>
++#include <linux/interrupt.h>
++#include <linux/taskstats_kern.h>
++#include <linux/delayacct.h>
++#include <linux/unistd.h>
++#include <linux/rmap.h>
++#include <linux/mempolicy.h>
++#include <linux/key.h>
++#include <linux/buffer_head.h>
++#include <linux/debug_locks.h>
++#include <linux/debugobjects.h>
++#include <linux/lockdep.h>
++#include <linux/kmemleak.h>
++#include <linux/pid_namespace.h>
++#include <linux/device.h>
++#include <linux/kthread.h>
++#include <linux/sched.h>
++#include <linux/signal.h>
++#include <linux/idr.h>
++#include <linux/kgdb.h>
++#include <linux/ftrace.h>
++#include <linux/async.h>
++#include <linux/sfi.h>
++#include <linux/shmem_fs.h>
++#include <linux/slab.h>
++#include <linux/perf_event.h>
++#include <linux/file.h>
++#include <linux/ptrace.h>
++#include <linux/blkdev.h>
++#include <linux/elevator.h>
++
++#include <asm/io.h>
++#include <asm/bugs.h>
++#include <asm/setup.h>
++#include <asm/sections.h>
++#include <asm/cacheflush.h>
++
++#ifdef CONFIG_X86_LOCAL_APIC
++#include <asm/smp.h>
++#endif
++
++
++void __init my_start_kernel(void)
++{
++    int i = 0;
++    while(1)
++    {
++        i++;
++        if(i%100000 == 0)
++            pr_notice("my_start_kernel here  %d \n",i);
++            
++    }
++}
+diff --git a/tools/objtool/elf.c b/tools/objtool/elf.c
+index edba4745f25a..2420a2c5d5fa 100644
+--- a/tools/objtool/elf.c
++++ b/tools/objtool/elf.c
+@@ -214,8 +214,8 @@ static int read_symbols(struct elf *elf)
+ 
+ 	symtab = find_section_by_name(elf, ".symtab");
+ 	if (!symtab) {
+-		WARN("missing symbol table");
+-		return -1;
++		//WARN("missing symbol table");
++		return -0;
+ 	}
+ 
+ 	symbols_nr = symtab->sh.sh_size / symtab->sh.sh_entsize;
+-- 
+2.34.0
+

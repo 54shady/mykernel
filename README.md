@@ -1,5 +1,37 @@
 # Welcome to the mykernel 2.0
 
+linux
+
+	git checkout v5.4-rc3 -b v5p4rc3
+	git am ~/github/mykernel/0001-Init.patch
+	make defconfig
+	make -j8
+
+qemu
+
+	git checkout 4b445c926a
+    ./configure \
+        --target-list="i386-softmmu,x86_64-softmmu,arm-softmmu,aarch64-softmmu" \
+        --enable-debug \
+        --disable-docs \
+        --disable-nettle \
+        --disable-gnutls \
+        --disable-gcrypt \
+        --extra-ldflags="`pkg-config --libs openssl`" \
+        --extra-cflags="-O0" \
+        --enable-trace-backends=ftrace \
+        --with-git-submodules=ignore \
+        --meson=/usr/bin/meson
+	make -j2
+
+run
+	~/src/qemu/build/x86_64-softmmu/qemu-system-x86_64 \
+		-kernel ~/src/linux/arch/x86/boot/bzImage \
+		-append 'console=ttyS0 115200' -serial stdio -display none
+
+-----------
+
+
 Develop your own OS kernel by reusing Linux infrastructure, based on x86-64/Linux Kernel 5.4.34.
 
 [mykernel 1.0](https://github.com/mengning/mykernel/tree/cc6f687daaa831a350f3022853825ebe8d78aa2f) based on IA32/Linux Kernel 3.9.4.
@@ -20,6 +52,8 @@ make defconfig # Default configuration is based on 'x86_64_defconfig'
 make -j$(nproc) # 编译的时间比较久哦
 sudo apt install qemu # install QEMU
 qemu-system-x86_64 -kernel arch/x86/boot/bzImage
+
+
 ```
 感谢meilihao 提交了pr [#14](https://github.com/mengning/mykernel/pull/14) ，通过如下方法可以解决allnoconfig编译出来qemu无法加载启动的问题
 
