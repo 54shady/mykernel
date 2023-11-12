@@ -1,10 +1,14 @@
 # Welcome to the mykernel 2.0
 
-linux
+linux(Kernel Hacking enable debug info)
 
 	git checkout v5.4-rc3 -b v5p4rc3
 	git am ~/github/mykernel/0001-Init.patch
 	make defconfig
+	make menuconfig
+
+		[*] Compile the kernel with debug info
+
 	make -j8
 
 qemu
@@ -24,10 +28,19 @@ qemu
         --meson=/usr/bin/meson
 	make -j2
 
-run
+run with console
 	~/src/qemu/build/x86_64-softmmu/qemu-system-x86_64 \
 		-kernel ~/src/linux/arch/x86/boot/bzImage \
 		-append 'console=ttyS0 115200' -serial stdio -display none
+
+cd rootfs
+make rootfs
+
+run with graphic and rootfs
+	~/src/qemu/build/x86_64-softmmu/qemu-system-x86_64 \
+		-enable-kvm \
+		-kernel ~/src/linux/arch/x86_64/boot/bzImage \
+		-initrd ~/github/mykernel/rootfs.img
 
 -----------
 
